@@ -1,4 +1,5 @@
-from yahk.services import Service, Chat
+from yahk.services import Service, Chat, User, ChatUser, Message, Event
+from yahk.db.slack import DBSlackService, DBSlackChat, DBSlackUser, DBSlackChatUser, DBSlackMessage, DBSlackEvent
 import asyncio
 import aiohttp
 import websockets
@@ -13,37 +14,12 @@ logger.debug("Loading Slack services...")
 
 class Slack(Service):
 
-    chats = {}
-
-    class SlackChat(Chat):
-
-        def __init__(self, service, name, channel):
-            super().__init__(service, name)
-
-            self.id = "{0}/{1}/{2}".format(
-                service.id, channel.server.name, channel.name
-            )
-            self.channel = channel
-
-        # async def join(self):
-        #     self.service.conn.send("JOIN {}".format(self.name))
-        #
-        async def send(self, message):
-            #self.service.conn.send("PRIVMSG {0} :{1}".format(self.name, message))
-            await self.service.conn.send_message(self.channel, message)
-
-
-        async def receive(self, message):
-            # Build context
-            text = message.content
-            author = message.author
-            name = author.name
-
-            if author.id == self.service.conn.user.id:
-                logger.debug("{0}: Message is from us - ignoring.".format(self.service.id))
-            else:
-                for bridge in self.bridges:
-                    await bridge.receive(text, self, name)
+    db_type = DBSlackService
+    db_chat_type = DBSlackChat
+    db_user_type = DBSlackUser
+    db_chat_user_type = DBSlackChatUser
+    db_message_type = DBSlackMessage
+    db_event_type = DBSlackEvent
 
     class SlackAPI(object):
 
@@ -81,6 +57,7 @@ class Slack(Service):
                         try:
                             self.service.logger.debug("{0}".format(json.loads(msg.data)))
                             j = json.loads(msg.data)
+                            await self.service.receive(j)
                             if j['type'] == 'message' and j['text'] == 'break':
                                 self.service.logger.debug("Break caught.")
                                 raise aiohttp.EofStream()
@@ -101,11 +78,61 @@ class Slack(Service):
 
             self.rtm_send(payload)
 
+    class SlackChat(Chat):
+
+        def __init__(self, service, channel_id, name=None):
+            if not name:
+                name = channel_id
+
+            super().__init__(service, channel_id, name)
+
+        @property
+        def id(self):
+            return "{0}/{1}".format(
+                self.service.id, self.name
+            )
+
+        # async def join(self):
+        #     self.service.conn.send("JOIN {}".format(self.name))
+        #
+        async def send(self, message):
+            #self.service.conn.send("PRIVMSG {0} :{1}".format(self.name, message))
+            await self.service.conn.send_message(self.channel, message)
+
+
+        async def receive(self, message):
+            # Build context
+            text = message.content
+            author = message.author
+            name = author.name
+
+            if author.id == self.service.conn.user.id:
+                logger.debug("{0}: Message is from us - ignoring.".format(self.service.id))
+            else:
+                for bridge in self.bridges:
+                    await bridge.receive(text, self, name)
+
+    class SlackUser(User):
+
+        pass
+
+    class SlackChatUser(ChatUser):
+
+        pass
+
+    class SlackMessage(Message):
+
+        pass
+
+
 
     def __init__(self, bot, id, name, enabled, token, channels):
-        super().__init__()
+        self.chat_class = self.SlackChat
+        self.user_class = self.SlackUser
+        self.chat_user_class = self.SlackChatUser
+        self.message_class = self.SlackMessage
 
-        self.bot = bot
+        super().__init__(bot, id, name, enabled)
         self.id = id
         self.name = name
         self.enabled = enabled
@@ -133,89 +160,26 @@ class Slack(Service):
             logger.info("{0} is currently disabled".format(self.id))
             return
 
-    async def on_ready(self):
-        await self.connected()
+    async def chat_from_message(self, message):
+        if not 'channel' in message:
+            self.logger.error("No channel key in message")
+            return False
 
-    async def connected(self):
-        self.logger.info("Connected!")
+        channel_id = message['channel']
+        if channel_id in self.chats:
+            chat = self.chats[channel_id]
+            self.logger.debug("Found existing chat {0} in service".format(chat))
+            return chat
 
-        #for channel in self.conn.get_all_channels():
-        #    logger.debug("{0}: -> {1}".format(self.id, channel))
-        for discord_server in self.conn.servers:
-            self.logger.debug("Server: {0} ({1})".format(discord_server.name, discord_server.id))
+        self.logger.debug("Didn't find chat in service already, creating new object...")
+        c = self.SlackChat(self, channel_id)
 
-            # Match returned servers with configured servers
-            for server in self.servers:
-                logger.debug("{0}: Looking for server with ID {1}...".format(self.id, server['id']))
-                if server['id'] == int(discord_server.id):
-                    logger.debug("{0}: Found server ID {1} for {2} in configuration (as {3})".format(
-                        self.id, discord_server.id, discord_server.name, server['name']
-                    ))
+    async def receive(self, data):
+        self.logger.debug(data)
 
-                    # Match returned channels with configured channels
-                    channels = server['channels']
-                    for discord_channel in discord_server.channels:
-                        if discord_channel.type != discord.ChannelType.text:
-                            # Not a text channel, skipping
-                            logger.debug("{0}: {1} is not a text channel (type: {2})".format(
-                                self.id, discord_channel.name, discord_channel.type
-                            ))
-                            continue
+        if data['type'] == 'message':
+            pass
 
-                        logger.debug("{0}: Looking for channel with name {1}...".format(
-                            self.id, discord_channel.name
-                        ))
-                        for channel in channels:
-                            if discord_channel.name == channel['name']:
-                                # Found matching channel
-                                logger.debug("{0}: Found channel name {1} in configuration".format(
-                                    self.id, discord_channel.name
-                                ))
-                                await self.create_chat(channel, discord_channel)
-                                break
-
-    async def create_chat(self, channel, discord_channel):
-        logger.debug("{0} creating chat for {1}".format(self.id, channel['name']))
-        chat = self.DiscordChat(self, channel['name'], discord_channel)
-
-        if 'bridges' not in channel:
-            bridges = [None]
-        else:
-            bridges = channel['bridges']
-
-        # Get/create bridges
-        for bridge_name in bridges:
-            bridge = self.bot.get_bridge(bridge_name)
-            bridge.add(chat)
-            chat.bridges.append(bridge)
-
-        self.chats[chat.channel.id] = chat
-        #await chat.join()
-        #await chat.send("Hello {}!".format(chat.name))
-
-    # async def on_join(self, conn, message):
-    #     nick = message.prefix.nick
-    #     channel = message.parameters[0]
-    #     logger.debug("{0}: {1} joined {2}".format(self.id, nick, channel))
-    #
-    #     if nick == self.nick:
-    #         # This is us
-    #         logger.debug("{0}: We've joined {1}".format(self.id, channel))
-    #         self.chats[channel].joined = True
-    #
-    # async def log(self, conn, message):
-    #     logger.debug("{0}: {1}".format(self.id, message))
-    #
-    async def on_message(self, message):
-        logger.debug("{0}: message received: {1}".format(self.id, message))
-        channel = message.channel.id
-
-        if channel in self.chats:
-            await self.chats[channel].receive(message)
-        else:
-            logger.debug("{0}: Ignoring message in unconfigured channel.".format(self.id))
-
-    async def quit(self):
-        logger.debug("{0}: Quitting...".format(self.id))
-        self.conn.close()
-        logger.debug("{0}: Disconnected!".format(self.id))
+    async def on_msg(self, message):
+        chat = self.chat_from_message(message)
+        pass

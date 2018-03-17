@@ -1,5 +1,5 @@
 from yahk.services import Service, Chat, User, ChatUser, Message, Event
-from yahk.db import DBIRCService, DBIRCChat, DBIRCUser, DBIRCChatUser, DBIRCMessage, DBIRCEvent
+from yahk.db.irc import DBIRCService, DBIRCChat, DBIRCUser, DBIRCChatUser, DBIRCMessage, DBIRCEvent
 from asyncirc.protocol import IrcProtocol
 from asyncirc.server import Server
 import logging
@@ -158,6 +158,16 @@ class IRC(Service):
         def __init__(self, service, chat, user):
             super().__init__(service, 'user_left', chat=chat, user=user)
 
+    class IRCQuitEvent(IRCEvent):
+
+        def __init__(self, service, chat, user):
+            super().__init__(service, 'user_quit', chat=chat, user=user)
+
+    class IRCNickEvent(IRCEvent):
+
+        def __init__(self, service, user, new_nick):
+            super().__init__(service, 'user_nick', user=user, new_value=new_nick, old_value=user.name)
+
 
     def __init__(self, bot, id, name, enabled, hosts, nick, real_name, channels):
         self.chat_class = self.IRCChat
@@ -300,6 +310,8 @@ class IRC(Service):
         else:
             chat_user.active = True
 
+        event = self.IRCJoinEvent(self, chat, user)
+
     async def on_part(self, conn, message):
         user = self.user_from_message(message)
         chat = self.chat_from_message(message)
@@ -314,6 +326,8 @@ class IRC(Service):
             self.chats[chat.name].joined = False
         else:
             chat_user.active = False
+
+        event = self.IRCLeaveEvent(self, chat, user)
 
     async def on_quit(self, conn, message):
         user = self.user_from_message(message)
@@ -330,6 +344,8 @@ class IRC(Service):
         else:
             chat_user.active = False
 
+        event = self.IRCQuitEvent(self, chat, user)
+
     async def on_topic(self, conn, message):
         user = self.user_from_message(message)
         chat = self.chat_from_message(message)
@@ -345,7 +361,13 @@ class IRC(Service):
         chat.topic = topic
 
     async def on_topicreply(self, conn, message):
-        pass
+        chat = self.chat_from_name(message.parameters[1])
+        topic = message.parameters[2][1:]
+
+        self.logger.debug("TOPIC for {0} is {1}".format(chat, topic))
+
+        chat.topic = topic
+        return
 
     async def on_nick(self, conn, message):
         user = self.user_from_message(message)
@@ -355,6 +377,7 @@ class IRC(Service):
             user.name, new_nick
         ))
 
+        event = self.IRCNickEvent(self, user, new_nick)
         user.name = new_nick
 
 

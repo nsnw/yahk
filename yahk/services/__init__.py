@@ -70,12 +70,12 @@ class Service(object):
             logger.debug("User {0} not in {1}".format(user, self))
 
     def add_chat(self, chat):
-        self.chats[chat.name] = chat
+        self.chats[chat.identifier] = chat
         logger.debug("Added chat {0} to {1}".format(chat, self))
 
     def remove_chat(self, chat):
-        if chat.name in self.chats:
-            del self.chats[chat.name]
+        if chat.identifier in self.chats:
+            del self.chats[chat.identifier]
             logger.debug("Removed {0} from {1}".format(chat, self))
         else:
             logger.debug("Chat {0} not in {1}".format(chat, self))
@@ -106,7 +106,11 @@ class Chat(object):
 
     db_type = None
 
-    def __init__(self, service, name, identifier=None):
+    def __init__(self, service, identifier, name=None):
+
+        self.identifier = identifier
+        if not name:
+            name = identifier
 
         self.bridges = []
         #self.users = []
@@ -120,11 +124,6 @@ class Chat(object):
         self.id = "{0}/{1}".format(service.id, name)
 
         self.db_id = None
-
-        if identifier:
-            self.identifier = identifier
-        else:
-            self.identifier = self.name
 
         self.save()
 
@@ -574,8 +573,8 @@ class Event(object):
             event = self.db_type()
 
         event.service_id = self.service.db_id
-        event.chat_id = self.chat.db_id
-        event.user_id = self.user.db_id
+        event.chat_id = self.chat.db_id if self.chat else None
+        event.user_id = self.user.db_id if self.user else None
         event.event = self.event
         event.new_value = self.new_value
         event.old_value = self.old_value

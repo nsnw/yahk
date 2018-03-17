@@ -15,7 +15,7 @@ from yahk.db import DB
 from yahk.services.irc import IRC
 from yahk.plugin import Plugin
 #from yahk.services.discord import Discord
-#from yahk.services.slack import Slack
+from yahk.services.slack import Slack
 #from yahk.services.telegram import Telegram
 
 logger = logging.getLogger(__name__)
@@ -104,23 +104,23 @@ class Bot(object):
             #
             #         self.services[service_id] = d
             #
-            # if service == 'slack':
-            #     for service_name in self.config.config['slack']:
-            #         service_id = "Slack/{0}".format(service_name)
-            #         logger.debug("Configuring {0}".format(service_id))
-            #         service_details = self.config.config['slack'][service_name]
-            #
-            #         # Configure Discord connection
-            #         s = Slack(
-            #             bot=self,
-            #             id=service_id,
-            #             name=service_name,
-            #             enabled=service_details['enabled'] if 'enabled' in service_details else True,
-            #             token=service_details['token'],
-            #             channels=service_details['channels']
-            #         )
-            #
-            #         self.services[service_id] = s
+            if service == 'slack':
+                for service_name in self.config.config['slack']:
+                    service_id = "Slack/{0}".format(service_name)
+                    logger.debug("Configuring {0}".format(service_id))
+                    service_details = self.config.config['slack'][service_name]
+
+                    # Configure Discord connection
+                    s = Slack(
+                        bot=self,
+                        id=service_id,
+                        name=service_name,
+                        enabled=service_details['enabled'] if 'enabled' in service_details else True,
+                        token=service_details['token'],
+                        channels=service_details['channels']
+                    )
+
+                    self.services[service_id] = s
             #
             # if service == 'telegram':
             #     for service_name in self.config.config['telegram']:

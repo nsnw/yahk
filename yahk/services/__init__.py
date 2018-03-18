@@ -2,6 +2,7 @@ import logging
 import yahk.db
 from yahk.db.classes import DBService, DBChat, DBUser, DBMessage
 from yahk import bot
+from datetime import datetime
 
 logger = logging.getLogger(__name__)
 logger.debug("Loading services module...")
@@ -15,19 +16,29 @@ class Service(object):
     message_class = None
     event_class = None
 
-    def __init__(self, bot, id, name, enabled=True):
+    def __init__(self, bot, id, name, enabled=True, me=None):
         self.bot = bot
         self.db = bot.db
         self.id = id
         self.name = name
         self.identifier = self.name
         self.enabled = enabled
+        self._me = me
 
         self.db_id = None
 
         self.chats = {}
         self.users = []
 
+        self.save()
+
+    @property
+    def me(self):
+        return self._me
+
+    @me.setter
+    def me(self, value):
+        self._me = value
         self.save()
 
     def save(self):
@@ -83,12 +94,24 @@ class Service(object):
     def user_by_identifier(self, identifier):
         for user in self.users:
             if identifier == user.identifier:
-                logger.debug("Found {0} for {1}".format(user, self))
+                self.logger.debug("Found {0} for {1}".format(user, self))
                 return user
 
-        logger.debug("Couldn't find {0} for {1}".format(identifier, self))
+        self.logger.debug("Couldn't find {0} for {1}".format(identifier, self))
         user = self.user_class(self, identifier)
+        self.add_user(user)
         return user
+
+    def chat_by_identifier(self, identifier):
+        if identifier in self.chats:
+            chat = self.chats[identifier]
+            self.logger.debug("Found {0} for {1}".format(chat, self))
+            return chat
+
+        self.logger.debug("Couldn't find {0} for {1}".format(identifier, self))
+        chat = self.chat_class(self, identifier)
+        self.add_chat(chat)
+        return chat
 
     def __repr__(self):
         return "<{0}: {1}>".format(self.__class__.__name__, self.id)
@@ -109,9 +132,6 @@ class Chat(object):
     def __init__(self, service, identifier, name=None):
 
         self.identifier = identifier
-        if not name:
-            name = identifier
-
         self.bridges = []
         #self.users = []
         self.chat_users = []
@@ -120,12 +140,29 @@ class Chat(object):
         logger.debug("Creating new chat {0} for {1}...".format(name, service.id))
         self.service = service
         self.db = service.db
-        self.name = name
-        self.id = "{0}/{1}".format(service.id, name)
+
+        if not name:
+            name = identifier
+        self._name = name
 
         self.db_id = None
 
         self.save()
+
+    @property
+    def name(self):
+        return self._name
+
+    @name.setter
+    def name(self, value):
+        self._name = value
+        self.save()
+
+    @property
+    def id(self):
+        return "{0}/{1}".format(
+            self.service.id, self.name
+        )
 
     def _get_db_object(self) -> DBChat:
         # Get or create DB object
@@ -194,6 +231,7 @@ class Chat(object):
 
         logger.debug("No matching chat user found for {0} {1}, creating...".format(self, user))
         chat_user = self.service.chat_user_class(self.service, self, user)
+        self.chat_users.append(chat_user)
 
         return chat_user
 
@@ -242,20 +280,20 @@ class User(object):
 
     db_type = None
 
-    def __init__(self, service: Service, name, identifier=None):
+    def __init__(self, service: Service, identifier, name=None):
         logger.debug("Creating new user {0} for {1}...".format(name, service.id))
+        self.identifier = identifier
         self.service = service
         self.user_chats = []
         self.db = service.bot.db
+
+        if not name:
+            name = identifier
+
         self._name = name
         #self._id = "{0}/{1}".format(service.id, name)
 
         self.db_id = None
-
-        if identifier:
-            self.identifier = identifier
-        else:
-            self.identifier = self.name
 
         self.save()
 
@@ -310,8 +348,8 @@ class User(object):
         if not user:
             user = self.db_type()
 
-        user.name = self.name
         user.identifier = self.identifier
+        user.name = self.name
         user.service_id = self.service.db_id
 
         # Handle attributes registered by the child class
@@ -455,7 +493,7 @@ class Message(object):
 
     db_type = None
 
-    def __init__(self, service, chat, user, message):
+    def __init__(self, service, chat, user, message, ts=None):
         logger.debug("Creating new message...")
         self.service = service
         self.chat = chat
@@ -463,9 +501,24 @@ class Message(object):
         self.message = message
         self.db = service.bot.db
 
+        if not ts:
+            # If no timestamp was passed, assume current time
+            epoch = datetime.utcfromtimestamp(0)
+            now = datetime.now()
+            ts = (now - epoch).total_seconds()
+            self.ts = ts
+            self.logger.debug("No timestamp passed, assuming current time of {0}".format(ts))
+        else:
+            self.ts = ts
+
+
         self.db_id = None
 
         self.save()
+
+    @property
+    def id(self):
+        return "{0}/{1}".format(self.service.id, self.ts)
 
     def _get_db_object(self):
         # Get or create DB object
@@ -490,6 +543,7 @@ class Message(object):
         if not message:
             message = self.db_type()
 
+        message.ts = self.ts
         message.service_id = self.service.db_id
         message.chat_id = self.chat.db_id
         message.user_id = self.user.db_id
@@ -520,7 +574,7 @@ class Message(object):
         s.close()
 
     def __repr__(self):
-        return "<{0}: {1}>".format(self.__class__.__name__, self.db_id)
+        return "<{0}: {1}>".format(self.__class__.__name__, self.id)
 
     class MessageLogger(logging.LoggerAdapter):
         def process(self, msg, kwargs):
@@ -529,25 +583,40 @@ class Message(object):
     @property
     def logger(self):
         logger = logging.getLogger(str(self.__class__.__module__))
-        return self.MessageLogger(logger, {'message_id': self.db_id})
+        return self.MessageLogger(logger, {'message_id': self.id})
 
 class Event(object):
 
     db_type = None
 
-    def __init__(self, service, event, new_value=None, old_value=None, chat=None, user=None):
+    def __init__(self, service, event, new_value=None, old_value=None, chat=None, user=None, target_user=None, ts=None):
         logger.debug("Creating new event...")
         self.service = service
         self.chat = chat
         self.user = user
+        self.target_user = target_user
         self.event = event
         self.new_value = new_value
         self.old_value = old_value
         self.db = service.bot.db
 
+        if not ts:
+            # If no timestamp was passed, assume current time
+            epoch = datetime.utcfromtimestamp(0)
+            now = datetime.now()
+            ts = (now - epoch).total_seconds()
+            self.ts = ts
+            self.logger.debug("No timestamp passed, assuming current time of {0}".format(ts))
+        else:
+            self.ts = ts
+
         self.db_id = None
 
         self.save()
+
+    @property
+    def id(self):
+        return "{0}/{1}".format(self.service.id, self.ts)
 
     def _get_db_object(self):
         # Get or create DB object
@@ -572,9 +641,11 @@ class Event(object):
         if not event:
             event = self.db_type()
 
+        event.ts = self.ts
         event.service_id = self.service.db_id
         event.chat_id = self.chat.db_id if self.chat else None
         event.user_id = self.user.db_id if self.user else None
+        event.target_user_id = self.target_user.db_id if self.target_user else None
         event.event = self.event
         event.new_value = self.new_value
         event.old_value = self.old_value
@@ -604,7 +675,7 @@ class Event(object):
         s.close()
 
     def __repr__(self):
-        return "<{0}: {1}>".format(self.__class__.__name__, self.db_id)
+        return "<{0}: {1}>".format(self.__class__.__name__, self.id)
 
     class EventLogger(logging.LoggerAdapter):
         def process(self, msg, kwargs):
@@ -613,4 +684,4 @@ class Event(object):
     @property
     def logger(self):
         logger = logging.getLogger(str(self.__class__.__module__))
-        return self.EventLogger(logger, {'event_id': self.db_id})
+        return self.EventLogger(logger, {'event_id': self.id})

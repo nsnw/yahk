@@ -1,5 +1,5 @@
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy import create_engine, inspect, Table, Column, Integer, String, ForeignKey, Boolean
+from sqlalchemy import create_engine, inspect, Table, Column, Integer, String, ForeignKey, Boolean, Numeric
 from sqlalchemy.orm import sessionmaker, relationship, Session
 from sqlalchemy.orm.exc import NoResultFound, MultipleResultsFound
 import logging
@@ -41,7 +41,7 @@ class DBUser(Base, EqMixin):
 
     id = Column(Integer, primary_key=True)
     user_type = Column(String)
-    service_id = Column(String, ForeignKey('service.id'))
+    service_id = Column(Integer, ForeignKey('service.id'))
     service = relationship("DBService", back_populates="users")
     #chats = relationship("DBChat", secondary=chat_user_table, back_populates="users")
     user_chats = relationship("DBChatUser", back_populates="user")
@@ -61,7 +61,7 @@ class DBChat(Base):
 
     id = Column(Integer, primary_key=True)
     chat_type = Column(String)
-    service_id = Column(String, ForeignKey('service.id'))
+    service_id = Column(Integer, ForeignKey('service.id'))
     service = relationship("DBService", back_populates="chats")
     #users = relationship("DBUser", secondary=chat_user_table, back_populates="chats", lazy='joined')
     chat_users = relationship("DBChatUser", back_populates="chat", lazy='joined')
@@ -81,9 +81,9 @@ class DBChatUser(Base):
 
     id = Column(Integer, primary_key=True)
     chat_user_type = Column(String)
-    chat_id = Column(String, ForeignKey('chat.id'))
+    chat_id = Column(Integer, ForeignKey('chat.id'))
     chat = relationship("DBChat", back_populates="chat_users", lazy='joined')
-    user_id = Column(String, ForeignKey('user.id'))
+    user_id = Column(Integer, ForeignKey('user.id'))
     user = relationship("DBUser", back_populates="user_chats", lazy='joined')
     active = Column(Boolean, default=False)
 
@@ -106,6 +106,9 @@ class DBService(Base):
     users = relationship("DBUser", back_populates="service")
     chats = relationship("DBChat", back_populates="service")
 
+    #me_id = Column(Integer, ForeignKey('user.id'))
+    me = relationship("DBUser")
+
     __mapper_args__ = {
         'polymorphic_identity': 'service',
         'polymorphic_on': service_type
@@ -118,12 +121,13 @@ class DBMessage(Base):
     __tablename__ = 'message'
 
     id = Column(Integer, primary_key=True)
+    ts = Column(Numeric)
     message_type = Column(String)
-    service_id = Column(String, ForeignKey('service.id'))
+    service_id = Column(Integer, ForeignKey('service.id'))
     service = relationship("DBService")
-    chat_id = Column(String, ForeignKey('chat.id'))
+    chat_id = Column(Integer, ForeignKey('chat.id'))
     chat = relationship("DBChat")
-    user_id = Column(String, ForeignKey('user.id'))
+    user_id = Column(Integer, ForeignKey('user.id'))
     user = relationship("DBUser")
     message = Column(String)
 
@@ -139,16 +143,19 @@ class DBEvent(Base):
     __tablename__ = 'event'
 
     id = Column(Integer, primary_key=True)
+    ts = Column(Numeric)
     event_type = Column(String)
-    service_id = Column(String, ForeignKey('service.id'))
+    service_id = Column(Integer, ForeignKey('service.id'))
     service = relationship("DBService")
-    chat_id = Column(String, ForeignKey('chat.id'))
+    chat_id = Column(Integer, ForeignKey('chat.id'))
     chat = relationship("DBChat")
-    user_id = Column(String, ForeignKey('user.id'))
-    user = relationship("DBUser")
+    user_id = Column(Integer, ForeignKey('user.id'))
+    user = relationship("DBUser", foreign_keys=[user_id])
     event = Column(String)
     new_value = Column(String)
     old_value = Column(String)
+    target_user_id = Column(Integer, ForeignKey('user.id'))
+    target_user = relationship("DBUser", foreign_keys=[target_user_id])
 
     __mapper_args__ = {
         'polymorphic_identity': 'event',

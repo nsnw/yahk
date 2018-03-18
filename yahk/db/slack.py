@@ -23,6 +23,10 @@ class DBSlackService(DBService):
 
     __tablename__ = 'slack_service'
     id = Column(Integer, ForeignKey('service.id'), primary_key=True)
+    token = Column(String)
+    url = Column(String)
+    team = Column(String)
+    team_id = Column(String)
 
     __mapper_args__ = {
         'polymorphic_identity': 'slack_service'
@@ -38,6 +42,8 @@ class DBSlackChat(DBChat):
     __tablename__ = 'slack_chat'
     id = Column(Integer, ForeignKey('chat.id'), primary_key=True)
     topic = Column(String)
+    purpose = Column(String)
+    deleted = Column(Boolean)
 
     __mapper_args__ = {
         'polymorphic_identity': 'slack_chat'

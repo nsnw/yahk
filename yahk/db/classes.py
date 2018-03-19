@@ -65,6 +65,7 @@ class DBChat(Base):
     service = relationship("DBService", back_populates="chats")
     #users = relationship("DBUser", secondary=chat_user_table, back_populates="chats", lazy='joined')
     chat_users = relationship("DBChatUser", back_populates="chat", lazy='joined')
+    chat_bridge = relationship("DBBridgeChat", back_populates="chat", lazy='joined')
     name = Column(String)
     identifier = Column(String)
 
@@ -116,6 +117,7 @@ class DBService(Base):
 
     def __repr__(self):
         return "<{0}: {1}>".format(self.__class__.__name__, self.name)
+
 
 class DBMessage(Base):
     __tablename__ = 'message'
@@ -175,3 +177,37 @@ class DBBotUser(Base):
     def __repr__(self):
         return "<{0}: {1}>".format(self.__class__.__name__, self.name)
 
+class DBBridge(Base):
+    __tablename__ = 'bridge'
+
+    id = Column(Integer, primary_key=True)
+    name = Column(String)
+    bridge_chats = relationship("DBBridgeChat", back_populates="bridge", lazy='joined')
+    enabled = Column(Boolean, default=True)
+
+    def __repr__(self):
+        return "<{0}: {1}>".format(self.__class__.__name__, self.name)
+
+class DBBridgeChat(Base):
+    __tablename__ = 'bridge_chat'
+
+    id = Column(Integer, primary_key=True)
+    bridge_chat_type = Column(String)
+    chat_id = Column(Integer, ForeignKey('chat.id'))
+    chat = relationship("DBChat", back_populates="chat_bridge", lazy='joined')
+    bridge_id = Column(Integer, ForeignKey('bridge.id'))
+    bridge = relationship("DBBridge", back_populates="bridge_chats", lazy='joined')
+    enabled = Column(Boolean, default=True)
+    active = Column(Boolean, default=True)
+
+    @property
+    def name(self):
+        return self.id
+
+    __mapper_args__ = {
+        'polymorphic_identity': 'bridge_chat',
+        'polymorphic_on': bridge_chat_type
+    }
+
+    def __repr__(self):
+        return "<{0}: {1}>".format(self.__class__.__name__, self.name)

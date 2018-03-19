@@ -29,6 +29,44 @@ class DB(object):
     def session(self) -> Session:
         return self.sessionmaker()
 
+    def get_bridge(self, db_id):
+        s = self.session
+
+        logger.debug("Querying for bridge id: {0}".format(
+            db_id
+        ))
+
+        try:
+            bridge = s.query(DBBridge).filter(DBBridge.id==db_id).one()
+            logger.debug("Found service {0}".format(bridge))
+            s.close()
+            return bridge
+        except MultipleResultsFound:
+            logger.error("Found multiple bridges with id {0}".format(db_id))
+            raise
+        except NoResultFound:
+            logger.info("No bridge with id {0} found".format(db_id))
+            return None
+
+    def get_bridge_by_name(self, name):
+        s = self.session
+
+        logger.debug("Querying for bridge name: {0}".format(
+            name
+        ))
+
+        try:
+            bridge = s.query(DBBridge).filter(DBBridge.name==name).one()
+            logger.debug("Found bridge {0}".format(bridge))
+            s.close()
+            return bridge
+        except MultipleResultsFound:
+            logger.error("Found multiple bridgess with name {0}".format(name))
+            raise
+        except NoResultFound:
+            logger.info("No bridge with name {0} found".format(name))
+            return None
+
     def get_service(self, service_type: DBService, db_id):
         s = self.session
 
@@ -113,6 +151,50 @@ class DB(object):
             logger.info("No chat with {0} found".format(identifier))
             return None
 
+    def get_bot_user(self, db_id):
+        s = self.session
+
+        logger.debug("Querying for bot user db_id: {0}".format(
+            db_id
+        ))
+
+        try:
+            bot_user = s.query(DBBotUser).filter(
+                DBBotUser.id == db_id
+            ).one()
+            logger.debug("Found user {0}".format(bot_user))
+            s.close()
+            return bot_user
+        except MultipleResultsFound:
+            logger.error("Found multiple bot users with db_id {0}".format(db_id))
+            raise
+        except NoResultFound:
+            logger.info("No bot user with db_id {0} found".format(db_id))
+            return None
+
+    def get_bot_user_by_name(self, name):
+        s = self.session
+
+        logger.debug("Querying for bot user name: {0}".format(
+            name
+        ))
+
+        try:
+            bot_user = s.query(DBBotUser).filter(
+                DBBotUser.name == name
+            ).one()
+            logger.debug("Found bot user {0}".format(bot_user))
+            s.close()
+            return bot_user
+        except MultipleResultsFound:
+            logger.error("Found multiple bot users with name {0}".format(
+                name
+            ))
+            raise
+        except NoResultFound:
+            logger.info("No bot user with identifier {0} found".format(name))
+            return None
+
     def get_user(self, user_type: DBUser, db_id):
         s = self.session
 
@@ -164,7 +246,7 @@ class DB(object):
     def get_chat_user(self, chat_user_type: DBChatUser, db_id):
         s = self.session
 
-        logger.debug("Querying for chatuser of type: {0}, db_id: {1}".format(
+        logger.debug("Querying for chat_user of type: {0}, db_id: {1}".format(
             chat_user_type, db_id
         ))
 
@@ -172,14 +254,61 @@ class DB(object):
             chat_user = s.query(chat_user_type).filter(
                 chat_user_type.id == db_id
             ).one()
-            logger.debug("Found event {0}".format(chat_user))
+            logger.debug("Found chat_user {0}".format(chat_user))
             s.close()
             return chat_user
         except MultipleResultsFound:
-            logger.error("Found multiple chatusers with db_id {0}".format(db_id))
+            logger.error("Found multiple chat_users with db_id {0}".format(db_id))
             raise
         except NoResultFound:
-            logger.info("No chatuser with db_id {0} found".format(db_id))
+            logger.info("No chat_user with db_id {0} found".format(db_id))
+            return None
+
+    def get_bridge_chat(self, bridge_chat_type: DBBridgeChat, db_id):
+        s = self.session
+
+        logger.debug("Querying for bridge_chat of type: {0}, db_id: {1}".format(
+            bridge_chat_type, db_id
+        ))
+
+        try:
+            bridge_chat = s.query(bridge_chat_type).filter(
+                bridge_chat_type.id == db_id
+            ).one()
+            logger.debug("Found bridge_chat {0}".format(bridge_chat))
+            s.close()
+            return bridge_chat
+        except MultipleResultsFound:
+            logger.error("Found multiple bridge_chats with db_id {0}".format(db_id))
+            raise
+        except NoResultFound:
+            logger.info("No bridge_chat with db_id {0} found".format(db_id))
+            return None
+
+    def get_bridge_chat_by_bridge_chat(self, bridge, chat):
+        s = self.session
+        bridge_chat_type = DBBridgeChat
+
+        logger.debug("Querying for bridge_chat {0}/{1}".format(
+            bridge.name, chat.name
+        ))
+
+        try:
+            bridge_chat = s.query(bridge_chat_type).filter(
+                bridge_chat_type.bridge_id == bridge.db_id
+            ).filter(
+                bridge_chat_type.chat_id == chat.db_id
+            ).one()
+            logger.debug("Found user {0}".format(bridge_chat))
+            s.close()
+            return bridge_chat
+        except MultipleResultsFound:
+            logger.error("Found multiple bridge_chats with identifier {0} and {1}".format(
+                bridge, chat
+            ))
+            raise
+        except NoResultFound:
+            logger.info("No bridge_chat with identifier {0} and {1} found".format(bridge, chat))
             return None
 
     def get_chat_user_by_chat_user(self, service, chat, user):

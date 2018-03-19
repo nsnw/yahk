@@ -1,5 +1,5 @@
 from sqlalchemy import Table, Column, Integer, String, ForeignKey, Boolean
-from yahk.db import DBUser, DBService, DBChat, DBChatUser, DBMessage, DBEvent
+from yahk.db import DBUser, DBService, DBChat, DBChatUser, DBMessage, DBEvent, DBBridgeChat
 
 class DBIRCUser(DBUser):
     #service_type = IRCService
@@ -83,6 +83,18 @@ class DBIRCEvent(DBEvent):
 
     __mapper_args__ = {
         'polymorphic_identity': 'irc_event'
+    }
+
+    def __repr__(self):
+        return "<{0}: {1}>".format(self.__class__.__name__, self.id)
+
+class DBIRCBridgeChat(DBBridgeChat):
+
+    __tablename__ = 'irc_bridge_chat'
+    id = Column(Integer, ForeignKey('bridge_chat.id'), primary_key=True)
+
+    __mapper_args__ = {
+        'polymorphic_identity': 'irc_bridge_chat'
     }
 
     def __repr__(self):

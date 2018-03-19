@@ -1,5 +1,5 @@
 from sqlalchemy import Table, Column, Integer, String, ForeignKey, Boolean
-from yahk.db import DBUser, DBService, DBChat, DBChatUser, DBMessage, DBEvent
+from yahk.db import DBUser, DBService, DBChat, DBChatUser, DBMessage, DBEvent, DBBridgeChat
 
 class DBSlackUser(DBUser):
 
@@ -87,6 +87,18 @@ class DBSlackEvent(DBEvent):
 
     __mapper_args__ = {
         'polymorphic_identity': 'slack_event'
+    }
+
+    def __repr__(self):
+        return "<{0}: {1}>".format(self.__class__.__name__, self.id)
+
+class DBSlackBridgeChat(DBBridgeChat):
+
+    __tablename__ = 'slack_bridge_chat'
+    id = Column(Integer, ForeignKey('bridge_chat.id'), primary_key=True)
+
+    __mapper_args__ = {
+        'polymorphic_identity': 'slack_bridge_chat'
     }
 
     def __repr__(self):

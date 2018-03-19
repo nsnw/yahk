@@ -10,8 +10,9 @@ from aioconsole import AsynchronousCli, start_interactive_server
 from aioconsole.server import parse_server, print_server
 from yahk.console import Console
 from yahk.config import Config
-from yahk.bridge import Bridge
+#from yahk.bridge import Bridge
 from yahk.db import DB
+from yahk.services import Bridge
 from yahk.services.irc import IRC
 from yahk.plugin import Plugin
 #from yahk.services.discord import Discord
@@ -32,6 +33,7 @@ class Bot(object):
         self.prefix = '.'
 
         self.commands = {}
+        self.matches = {}
 
         self.load_config()
 
@@ -233,6 +235,13 @@ class Bot(object):
                                             obj_name, o_name, command
                                         ))
                                         self.commands[command] = o
+                                if hasattr(o, 'matches'):
+
+                                    for match in o.matches:
+                                        logger.debug("Registering {0}.{1} for match {2}".format(
+                                            obj_name, o_name, match
+                                        ))
+                                        self.matches[match] = o
 
             except Exception as e:
                 logger.error("Could not load plugin {0}: {1}".format(plugin_name, e))

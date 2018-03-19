@@ -1,5 +1,5 @@
-from yahk.services import Service, Chat, User, ChatUser, Message, Event
-from yahk.db.irc import DBIRCService, DBIRCChat, DBIRCUser, DBIRCChatUser, DBIRCMessage, DBIRCEvent
+from yahk.services import Service, Chat, User, ChatUser, Message, Event, BridgeChat
+from yahk.db.irc import DBIRCService, DBIRCChat, DBIRCUser, DBIRCChatUser, DBIRCMessage, DBIRCEvent, DBIRCBridgeChat
 from asyncirc.protocol import IrcProtocol
 from asyncirc.server import Server
 import logging
@@ -16,6 +16,7 @@ class IRC(Service):
     db_chat_user_type = DBIRCChatUser
     db_message_type = DBIRCMessage
     db_event_type = DBIRCEvent
+    db_bridge_chat_type = DBIRCBridgeChat
 
     class IRCChat(Chat):
 
@@ -42,12 +43,12 @@ class IRC(Service):
         async def send(self, message):
             self.service.conn.send("PRIVMSG {0} :{1}".format(self.name, message))
 
-        async def receive(self, message):
+        async def receive(self, message, chat_user):
             # Build context
             text = message.parameters[1][1:]
             nick = message.prefix.nick
-            for bridge in self.bridges:
-                await bridge.receive(text, self, nick)
+
+            await self.bridge_chat.receive(text, chat_user)
 
         async def query_users(self):
             self.service.conn.send("WHO {0}".format(self.name))
@@ -129,6 +130,13 @@ class IRC(Service):
             self._voiced = value
             self.save()
 
+    class IRCBridgeChat(BridgeChat):
+
+        def __init__(self, bridge, chat):
+            self.db_type = chat.service.db_bridge_chat_type
+
+            super().__init__(bridge, chat)
+
     class IRCMessage(Message):
 
         def __init__(self, service, chat, user, message):
@@ -174,6 +182,8 @@ class IRC(Service):
         self.user_class = self.IRCUser
         self.chat_user_class = self.IRCChatUser
         self.message_class = self.IRCMessage
+        self.event_class = self.IRCEvent
+        self.bridge_chat_class = self.IRCBridgeChat
 
         super().__init__(bot, id, name, enabled)
 
@@ -239,29 +249,29 @@ class IRC(Service):
     async def create_chat(self, channel):
         chat = self.IRCChat(self, channel['name'])
 
-        if 'bridges' not in channel:
-            bridges = [None]
-        else:
-            bridges = channel['bridges']
+        #if 'bridges' not in channel:
+        #    bridges = [None]
+        #else:
+        #    bridges = channel['bridges']
 
         # Get/create bridges
-        for bridge_name in bridges:
-            bridge = self.bot.get_bridge(bridge_name)
-            bridge.add(chat)
-            chat.bridges.append(bridge)
+        #for bridge_name in bridges:
+        #    bridge = self.bot.get_bridge(bridge_name)
+        #    bridge.add(chat)
+        #    chat.bridges.append(bridge)
 
-        self.chats[chat.name] = chat
+        #self.chats[chat.name] = chat
         await chat.join()
         #await chat.send("Hello {}!".format(chat.name))
 
     async def log(self, conn, message):
         self.logger.debug(message)
 
-    def user_from_message(self, message):
+    async def user_from_message(self, message):
         nick, ident, host = message.prefix
-        return self.user_from_tuple(nick, ident, host)
+        return await self.user_from_tuple(nick, ident, host)
 
-    def user_from_tuple(self, nick, ident, host):
+    async def user_from_tuple(self, nick, ident, host):
         # Check to see if the service has this user already
         for user in self.users:
             self.logger.debug(user)
@@ -277,11 +287,18 @@ class IRC(Service):
         self.add_user(u)
         return u
 
-    def chat_from_message(self, message):
+    async def chat_from_message(self, message):
         name = message.parameters[0]
-        return self.chat_from_name(name)
+        return await self.chat_from_name(name)
 
-    def chat_from_name(self, name):
+    async def get_chat_and_user_from_message(self, message):
+        chat = await self.chat_from_message(message)
+        user = await self.user_from_message(message)
+        chat_user = await chat.get_chat_user(user)
+
+        return chat, user, chat_user
+
+    async def chat_from_name(self, name):
 
         # Check to see if the service has this chat already
         if name in self.chats:
@@ -295,9 +312,7 @@ class IRC(Service):
         return c
 
     async def on_join(self, conn, message):
-        user = self.user_from_message(message)
-        chat = self.chat_from_message(message)
-        chat_user = chat.get_chat_user(user)
+        chat, user, chat_user = await self.get_chat_and_user_from_message(message)
         self.logger.debug("{0} joined {1}".format(user.name, chat.name))
 
         if user.name == self.nick:
@@ -313,9 +328,7 @@ class IRC(Service):
         event = self.IRCJoinEvent(self, chat, user)
 
     async def on_part(self, conn, message):
-        user = self.user_from_message(message)
-        chat = self.chat_from_message(message)
-        chat_user = chat.get_chat_user(user)
+        chat, user, chat_user = await self.get_chat_and_user_from_message(message)
         self.logger.debug("{0} left {1}".format(user.name, chat.name))
 
         if user.name == self.nick:
@@ -330,9 +343,7 @@ class IRC(Service):
         event = self.IRCLeaveEvent(self, chat, user)
 
     async def on_quit(self, conn, message):
-        user = self.user_from_message(message)
-        chat = self.chat_from_message(message)
-        chat_user = chat.get_chat_user(user)
+        chat, user, chat_user = await self.get_chat_and_user_from_message(message)
         self.logger.debug("{0} left {1}".format(user.name, chat.name))
 
         if user.name == self.nick:
@@ -347,9 +358,7 @@ class IRC(Service):
         event = self.IRCQuitEvent(self, chat, user)
 
     async def on_topic(self, conn, message):
-        user = self.user_from_message(message)
-        chat = self.chat_from_message(message)
-        chat_user = chat.get_chat_user(user)
+        chat, user, chat_user = await self.get_chat_and_user_from_message(message)
         topic = message.parameters[1][1:]
 
         self.logger.debug("{0} changed topic on {1} to {2}".format(
@@ -361,7 +370,7 @@ class IRC(Service):
         chat.topic = topic
 
     async def on_topicreply(self, conn, message):
-        chat = self.chat_from_name(message.parameters[1])
+        chat = await self.chat_from_name(message.parameters[1])
         topic = message.parameters[2][1:]
 
         self.logger.debug("TOPIC for {0} is {1}".format(chat, topic))
@@ -370,7 +379,7 @@ class IRC(Service):
         return
 
     async def on_nick(self, conn, message):
-        user = self.user_from_message(message)
+        user = await self.user_from_message(message)
         new_nick = message.parameters[0][1:]
 
         self.logger.debug("{0} changed nick to {1}".format(
@@ -382,17 +391,15 @@ class IRC(Service):
 
 
     async def on_privmsg(self, conn, message):
-        user = self.user_from_message(message)
-        chat = self.chat_from_message(message)
+        chat, user, chat_user = await self.get_chat_and_user_from_message(message)
         msg = self.IRCMessage(self, chat, user, message.parameters[1][1:])
 
         self.logger.debug("PRIVMSG received")
 
-        await self.chats[chat.name].receive(message)
+        await self.chats[chat.name].receive(message, chat_user)
 
     async def on_kick(self, conn, message):
-        user = self.user_from_message(message)
-        chat = self.chat_from_message(message)
+        chat, user, chat_user = await self.get_chat_and_user_from_message(message)
 
         kicked_user = self.user_by_identifier(message.parameters[1])
         kick_message = message.parameters[2][1:]
@@ -405,8 +412,8 @@ class IRC(Service):
         #chat.remove_user(kicked_user)
 
     async def on_whoreply(self, conn, message):
-        chat = self.chat_from_name(message.parameters[1])
-        user = self.user_from_tuple(
+        chat = await self.chat_from_name(message.parameters[1])
+        user = await self.user_from_tuple(
             message.parameters[5],
             message.parameters[2],
             message.parameters[3]
@@ -414,7 +421,7 @@ class IRC(Service):
         user.real_name = message.parameters[7][3:]
         user.server = message.parameters[4]
 
-        chat_user = chat.get_chat_user(user)
+        chat_user = await chat.get_chat_user(user)
         chat_user.active = True
         chat_user.operator = True
 

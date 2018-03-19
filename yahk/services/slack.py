@@ -1,5 +1,5 @@
-from yahk.services import Service, Chat, User, ChatUser, Message, Event
-from yahk.db.slack import DBSlackService, DBSlackChat, DBSlackUser, DBSlackChatUser, DBSlackMessage, DBSlackEvent
+from yahk.services import Service, Chat, User, ChatUser, Message, Event, Bridge, BridgeChat
+from yahk.db.slack import DBSlackService, DBSlackChat, DBSlackUser, DBSlackChatUser, DBSlackMessage, DBSlackEvent, DBSlackBridgeChat
 import asyncio
 import aiohttp
 import websockets
@@ -20,6 +20,7 @@ class Slack(Service):
     db_chat_user_type = DBSlackChatUser
     db_message_type = DBSlackMessage
     db_event_type = DBSlackEvent
+    db_bridge_chat_type = DBSlackBridgeChat
 
     class SlackAPI(object):
 
@@ -62,6 +63,8 @@ class Slack(Service):
                             if j['type'] == 'message' and j['text'] == 'break':
                                 self.service.logger.debug("Break caught.")
                                 raise aiohttp.EofStream()
+                            if j['type'] == 'message' and j['text'] == 'bp':
+                                self.service.logger.debug("Break caught.")
                         except aiohttp.EofStream:
                             self.service.logger.info("Disconnected from Slack RTM stream.")
                             return
@@ -130,20 +133,27 @@ class Slack(Service):
         #
         async def send(self, message):
             #self.service.conn.send("PRIVMSG {0} :{1}".format(self.name, message))
-            await self.service.conn.send_message(self.channel, message)
+            await self.service.conn.api_call(
+                'chat.postMessage',
+                {'text': message,
+                 'channel': self.identifier}
+            )
 
 
-        async def receive(self, message):
+        async def receive(self, message, chat_user):
             # Build context
-            text = message.content
-            author = message.author
-            name = author.name
+            text = message['text']
+            #chat = chat_user.chat
+            #user = chat_user.user
 
-            if author.id == self.service.conn.user.id:
-                logger.debug("{0}: Message is from us - ignoring.".format(self.service.id))
-            else:
-                for bridge in self.bridges:
-                    await bridge.receive(text, self, name)
+            await self.bridge_chat.receive(text, chat_user)
+
+            #if author.id == self.service.conn.user.id:
+            #    logger.debug("{0}: Message is from us - ignoring.".format(self.service.id))
+            #else:
+            #    for bridge in self.bridges:
+            #        await bridge.receive(text, self, name)
+
 
         async def _conversations_info(self):
             response = await self.service.conn.api_call(
@@ -197,6 +207,13 @@ class Slack(Service):
 
             super().__init__(service, chat, user)
 
+    class SlackBridgeChat(BridgeChat):
+
+        def __init__(self, bridge, chat):
+            self.db_type = chat.service.db_bridge_chat_type
+
+            super().__init__(bridge, chat)
+
     class SlackMessage(Message):
         def __init__(self, service, chat, user, message):
             self.db_type = service.db_message_type
@@ -242,6 +259,8 @@ class Slack(Service):
         self.user_class = self.SlackUser
         self.chat_user_class = self.SlackChatUser
         self.message_class = self.SlackMessage
+        self.event_class = self.SlackEvent
+        self.bridge_chat_class = self.SlackBridgeChat
 
         self.child_attrs = ['token', 'team', 'team_id', 'url']
 
@@ -394,12 +413,14 @@ class Slack(Service):
     async def get_chat_and_user_from_message(self, message):
         chat = await self.chat_from_message(message)
         user = await self.user_from_message(message)
-        chat_user = chat.get_chat_user(user)
+        chat_user = await chat.get_chat_user(user)
 
         return chat, user, chat_user
 
     async def on_message(self, message):
         chat, user, chat_user = await self.get_chat_and_user_from_message(message)
+
+        await chat.receive(message, chat_user)
 
     async def on_user_typing(self, message):
         chat, user, chat_user = await self.get_chat_and_user_from_message(message)
